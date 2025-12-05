@@ -5,6 +5,14 @@ var cors = require("cors");
 require("dotenv").config();
 app.use(cors());
 app.use(express.json());
+var admin = require("firebase-admin");
+
+var serviceAccount = require("./scholarlink-9240a.json");
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
+
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster1.gq2vs5u.mongodb.net/?appName=Cluster1`;
 const client = new MongoClient(uri, {
@@ -20,6 +28,22 @@ async function run() {
     const scholarshipsCollection = db.collection("scholarships");
     const reviewsCollection = db.collection("reviews");
 
+    const verifyJwt = async (req, res, next) => {
+      const authorization = req.headers.authorization;
+      if (!authorization) {
+        return res.status(401).send({ message: "Unauthorized" });
+      }
+      const token = authorization.split(" ")[1];
+      try {
+        const decodedUser = await admin.auth().verifyIdToken(token);
+        console.log(decodedUser);
+        req.decodedUser = decodedUser;
+      } catch (error) {
+        return res.status(401).send({ message: "Unauthorized" });
+      }
+      next();
+    };
+
     // scholarships api
     app.get("/scholarships", async (req, res) => {
       const query = {};
@@ -32,7 +56,7 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/scholarships/:id", async (req, res) => {
+    app.get("/scholarships/:id", verifyJwt, async (req, res) => {
       const scholarship = await scholarshipsCollection.findOne({ _id: new ObjectId(req.params.id) });
       const reviewData = await reviewsCollection.findOne({ scholarshipId: req.params.id });
       res.send({ scholarship, reviewData });
