@@ -5,7 +5,7 @@ var cors = require("cors");
 require("dotenv").config();
 app.use(cors());
 app.use(express.json());
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster1.gq2vs5u.mongodb.net/?appName=Cluster1`;
 const client = new MongoClient(uri, {
   serverApi: {
@@ -22,6 +22,11 @@ async function run() {
     // scholarships api
     app.get("/scholarships/top", async (req, res) => {
       const result = await scholarshipsCollection.find().sort({ createdAt: -1 }).limit(6).toArray();
+      res.send(result);
+    });
+
+    app.get("/scholarships/:id", async (req, res) => {
+      const result = await scholarshipsCollection.findOne({ _id: new ObjectId(req.params.id) });
       res.send(result);
     });
 
