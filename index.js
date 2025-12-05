@@ -18,16 +18,24 @@ async function run() {
   try {
     const db = client.db("scholarlink");
     const scholarshipsCollection = db.collection("scholarships");
+    const reviewsCollection = db.collection("reviews");
 
     // scholarships api
+    app.get("/scholarships", async (req, res) => {
+      const query = {};
+      const result = await scholarshipsCollection.find(query).toArray();
+      res.send(result);
+    });
+
     app.get("/scholarships/top", async (req, res) => {
       const result = await scholarshipsCollection.find().sort({ createdAt: -1 }).limit(6).toArray();
       res.send(result);
     });
 
     app.get("/scholarships/:id", async (req, res) => {
-      const result = await scholarshipsCollection.findOne({ _id: new ObjectId(req.params.id) });
-      res.send(result);
+      const scholarship = await scholarshipsCollection.findOne({ _id: new ObjectId(req.params.id) });
+      const reviewData = await reviewsCollection.findOne({ scholarshipId: req.params.id });
+      res.send({ scholarship, reviewData });
     });
 
     await client.connect();
