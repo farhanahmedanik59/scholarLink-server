@@ -27,6 +27,7 @@ async function run() {
     const db = client.db("scholarlink");
     const scholarshipsCollection = db.collection("scholarships");
     const reviewsCollection = db.collection("reviews");
+    const usersCollection = db.collection("users");
 
     const verifyJwt = async (req, res, next) => {
       const authorization = req.headers.authorization;
@@ -44,6 +45,48 @@ async function run() {
       next();
     };
 
+    const verifyAdmin = (req, res, next) => {
+      console.log(req.decodedUser);
+      next();
+    };
+
+    // usersapi
+    app.get("/user/info", verifyJwt, async (req, res) => {
+      const { email } = req.query;
+      const result = await usersCollection.findOne({ email: email });
+      res.send(result);
+    });
+    app.get("/user/status/role", async (req, res) => {
+      const user = req.body;
+      const result = await usersCollection.findOne({ email: userEmail.email });
+      res.send({ role: result.role });
+    });
+    app.patch("/user/status", verifyJwt, verifyAdmin, async (req, res) => {
+      const { userInfo } = req.body;
+      const result = await usersCollection.updateOne(
+        { email: userInfo.email },
+        {
+          $set: {
+            role: userInfo.role,
+          },
+        }
+      );
+      res.send(result);
+    });
+
+    app.post("/user/auth", async (req, res) => {
+      const userInfo = req.body;
+      userInfo.role = "student";
+      const userexist = await usersCollection.findOne({ email: userInfo.email });
+      if (userexist) {
+        return res.send({ message: "user Already Exixts" });
+      } else {
+        const result = await usersCollection.insertOne(userInfo);
+        res.send(result);
+      }
+    });
+
+    // schoalarships api
     app.get("/scholarships", async (req, res) => {
       try {
         const scholarships = await scholarshipsCollection.find().toArray();
