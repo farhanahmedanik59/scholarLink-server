@@ -44,11 +44,48 @@ async function run() {
       next();
     };
 
-    // scholarships api
     app.get("/scholarships", async (req, res) => {
-      const query = {};
-      const result = await scholarshipsCollection.find(query).toArray();
-      res.send(result);
+      try {
+        const scholarships = await scholarshipsCollection.find().toArray();
+
+        const countries = [...new Set(scholarships.map((s) => s.universityCountry).filter(Boolean))];
+        const categories = [...new Set(scholarships.map((s) => s.scholarshipCategory).filter(Boolean))];
+
+        res.send({
+          success: true,
+          data: scholarships,
+          filters: {
+            countries: ["All", ...countries],
+            categories: ["All", ...categories],
+          },
+        });
+      } catch (error) {
+        console.error("Error:", error);
+        res.status(500).send({ success: false, message: error.message });
+      }
+    });
+
+    app.get("/scholarships/filters", async (req, res) => {
+      try {
+        const allScholarships = await scholarshipsCollection
+          .find()
+          .sort({
+            scholarshipPostDate: -1,
+          })
+          .toArray();
+        const countries = [...new Set(allScholarships.map((s) => s.universityCountry).filter(Boolean))];
+        const categories = [...new Set(allScholarships.map((s) => s.scholarshipCategory).filter(Boolean))];
+        const subjects = [...new Set(allScholarships.map((s) => s.subjectCategory).filter(Boolean))];
+
+        res.send({
+          success: true,
+          countries: ["All", ...countries.sort()],
+          categories: ["All", ...categories.sort()],
+          subjects: ["All", ...subjects.sort()],
+        });
+      } catch (error) {
+        res.status(500).send({ success: false, message: "Error fetching filter options" });
+      }
     });
 
     app.get("/scholarships/top", async (req, res) => {
@@ -56,7 +93,7 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/scholarships/:id", verifyJwt, async (req, res) => {
+    app.get("/scholarships/:id", async (req, res) => {
       const scholarship = await scholarshipsCollection.findOne({ _id: new ObjectId(req.params.id) });
       const reviewData = await reviewsCollection.findOne({ scholarshipId: req.params.id });
       res.send({ scholarship, reviewData });
