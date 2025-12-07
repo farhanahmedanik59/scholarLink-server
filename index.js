@@ -61,7 +61,6 @@ async function run() {
     });
     app.get("/users/:email/role", async (req, res) => {
       const { email } = req.params;
-      console.log(email);
       const result = await usersCollection.findOne({ email: email });
       res.send({ role: result.role });
     });
@@ -92,9 +91,21 @@ async function run() {
     });
 
     // schoalarships api
+    app.post("/scholarships", async (req, res) => {
+      console.log(req.body);
+      req.body.scholarshipPostDate = new Date();
+      console.log(req.body);
+      const result = await scholarshipsCollection.insertOne(req.body);
+      console.log(result);
+      res.send(result);
+    });
+    app.get("/adminScholarships", async (req, res) => {
+      const result = await scholarshipsCollection.find().toArray();
+      res.send(result);
+    });
     app.get("/scholarships", async (req, res) => {
       try {
-        const scholarships = await scholarshipsCollection.find().toArray();
+        const scholarships = await scholarshipsCollection.find().sort({ scholarshipPostDate: -1 }).toArray();
 
         const countries = [...new Set(scholarships.map((s) => s.universityCountry).filter(Boolean))];
         const categories = [...new Set(scholarships.map((s) => s.scholarshipCategory).filter(Boolean))];
@@ -137,7 +148,7 @@ async function run() {
     });
 
     app.get("/scholarships/top", async (req, res) => {
-      const result = await scholarshipsCollection.find().sort({ createdAt: -1 }).limit(6).toArray();
+      const result = await scholarshipsCollection.find().sort({ universityWorldRank: -1 }).limit(6).toArray();
       res.send(result);
     });
 
@@ -145,6 +156,13 @@ async function run() {
       const scholarship = await scholarshipsCollection.findOne({ _id: new ObjectId(req.params.id) });
       const reviewData = await reviewsCollection.findOne({ scholarshipId: req.params.id });
       res.send({ scholarship, reviewData });
+    });
+    app.patch("/scholarships/:id", async (req, res) => {
+      const id = req.params.id;
+      const updatedDoc = req.body;
+
+      const result = await scholarshipsCollection.updateOne({ _id: new ObjectId(id) }, { $set: updatedDoc });
+      res.send(result);
     });
 
     await client.connect();
