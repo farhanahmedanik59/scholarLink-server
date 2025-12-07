@@ -46,23 +46,28 @@ async function run() {
     };
 
     const verifyAdmin = (req, res, next) => {
-      console.log(req.decodedUser);
       next();
     };
 
     // usersapi
+    app.get("/users", async (req, res) => {
+      const result = await usersCollection.find().toArray();
+      res.send(result);
+    });
     app.get("/user/info", verifyJwt, async (req, res) => {
       const { email } = req.query;
       const result = await usersCollection.findOne({ email: email });
       res.send(result);
     });
-    app.get("/user/status/role", async (req, res) => {
-      const user = req.body;
-      const result = await usersCollection.findOne({ email: userEmail.email });
+    app.get("/users/:email/role", async (req, res) => {
+      const { email } = req.params;
+      console.log(email);
+      const result = await usersCollection.findOne({ email: email });
       res.send({ role: result.role });
     });
-    app.patch("/user/status", verifyJwt, verifyAdmin, async (req, res) => {
-      const { userInfo } = req.body;
+    app.patch("/user/:email/role", verifyJwt, verifyAdmin, async (req, res) => {
+      const userInfo = req.body;
+      console.log(req.body);
       const result = await usersCollection.updateOne(
         { email: userInfo.email },
         {
