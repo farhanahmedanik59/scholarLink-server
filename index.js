@@ -6,7 +6,7 @@ require("dotenv").config();
 app.use(cors());
 app.use(express.json());
 var admin = require("firebase-admin");
-
+const stripe = require("stripe")(process.env.STRIPE_API);
 var serviceAccount = require("./scholarlink-9240a.json");
 
 admin.initializeApp({
@@ -28,6 +28,7 @@ async function run() {
     const scholarshipsCollection = db.collection("scholarships");
     const reviewsCollection = db.collection("reviews");
     const usersCollection = db.collection("users");
+    const applicationCollection = db.collection("applications");
 
     const verifyJwt = async (req, res, next) => {
       const authorization = req.headers.authorization;
@@ -37,7 +38,6 @@ async function run() {
       const token = authorization.split(" ")[1];
       try {
         const decodedUser = await admin.auth().verifyIdToken(token);
-        console.log(decodedUser);
         req.decodedUser = decodedUser;
       } catch (error) {
         return res.status(401).send({ message: "Unauthorized" });
@@ -92,9 +92,7 @@ async function run() {
 
     // schoalarships api
     app.post("/scholarships", async (req, res) => {
-      console.log(req.body);
       req.body.scholarshipPostDate = new Date();
-      console.log(req.body);
       const result = await scholarshipsCollection.insertOne(req.body);
       console.log(result);
       res.send(result);
@@ -163,6 +161,85 @@ async function run() {
 
       const result = await scholarshipsCollection.updateOne({ _id: new ObjectId(id) }, { $set: updatedDoc });
       res.send(result);
+    });
+
+    // application api
+    app.post("/apply", async (req, res) => {
+      const scholarship = req.body;
+      scholarship.applicationStatus = "pending";
+      scholarship.paymentStatus = "unpaid";
+      scholarship.applicationDate = new Date();
+      scholarship.feedback = "";
+      const result = await applicationCollection.insertOne(scholarship);
+      res.send(result);
+    });
+
+    app.get("/applications", verifyJwt, async (req, res) => {
+      const { email } = req.query;
+      if (req.decodedUser.email !== email) {
+        console.log(req.decodedUser);
+        return res.status(401).send({ message: "Unauthorized" });
+      } else {
+        const result = await applicationCollection.find({ userEmail: email }).toArray();
+        res.send(result);
+      }
+    });
+
+    // STRIPE Api
+    app.post("/create-checkout-session", async (req, res) => {
+      const paymentInfo = req.body;
+      console.log(paymentInfo);
+      const amount = (paymentInfo.serviceCharge + paymentInfo.applicationFees) * 100;
+      console.log(amount);
+      const session = await stripe.checkout.sessions.create({
+        line_items: [
+          {
+            // Provide the exact Price ID (for example, price_1234) of the product you want to sell
+            price_data: {
+              currency: "USD",
+              unit_amount: amount,
+              product_data: { name: paymentInfo.universityName },
+            },
+            quantity: 1,
+          },
+        ],
+        customer_email: paymentInfo.userEmail,
+
+        mode: "payment",
+        metadata: {
+          userEmail: paymentInfo.userEmail,
+          scholarshipId: paymentInfo._id,
+          userId: paymentInfo.userId,
+          universityName: paymentInfo.universityName,
+          scholarshipCategory: paymentInfo.scholarshipCategory,
+          degree: paymentInfo.degree,
+          applicationFees: paymentInfo.applicationFees,
+          serviceCharge: paymentInfo.serviceCharge,
+          applicationStatus: "pending",
+          feedback: "",
+          userName: paymentInfo.userName,
+        },
+        success_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success`,
+      });
+      res.send({ url: session.url });
+    });
+
+    app.patch("/payment-success", async (req, res) => {
+      const sessionid = req.query.session_id;
+      const email = req.query.email;
+      const session = await stripe.checkout.sessions.retrieve(sessionid);
+      const application = session.metadata;
+      application.applicationStatus = "pending";
+      application.paymentStatus = "paid";
+      application.tnxId = session.payment_intent;
+      const check = await applicationCollection.findOne({ tnxId: session.payment_intent });
+      console.log(check);
+      if (check) {
+        return;
+      } else {
+        const result = await applicationCollection.insertOne(application);
+      }
     });
 
     await client.connect();
