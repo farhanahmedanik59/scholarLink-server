@@ -163,17 +163,6 @@ async function run() {
       res.send(result);
     });
 
-    // application api
-    app.post("/apply", async (req, res) => {
-      const scholarship = req.body;
-      scholarship.applicationStatus = "pending";
-      scholarship.paymentStatus = "unpaid";
-      scholarship.applicationDate = new Date();
-      scholarship.feedback = "";
-      const result = await applicationCollection.insertOne(scholarship);
-      res.send(result);
-    });
-
     app.get("/applications", verifyJwt, async (req, res) => {
       const { email } = req.query;
       if (req.decodedUser.email !== email) {
@@ -188,9 +177,7 @@ async function run() {
     // STRIPE Api
     app.post("/create-checkout-session", async (req, res) => {
       const paymentInfo = req.body;
-      console.log(paymentInfo);
       const amount = (paymentInfo.serviceCharge + paymentInfo.applicationFees) * 100;
-      console.log(amount);
       const session = await stripe.checkout.sessions.create({
         line_items: [
           {
@@ -218,9 +205,10 @@ async function run() {
           applicationStatus: "pending",
           feedback: "",
           userName: paymentInfo.userName,
+          universityCountry: paymentInfo.universityCountry,
         },
-        success_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success`,
+        success_url: `${process.env.SITE_DOMAIN}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${process.env.SITE_DOMAIN}/payment-error?apl_id=${paymentInfo._id}`,
       });
       res.send({ url: session.url });
     });
@@ -236,9 +224,40 @@ async function run() {
       const check = await applicationCollection.findOne({ tnxId: session.payment_intent });
       console.log(check);
       if (check) {
+        console.log("exists");
         return;
       } else {
         const result = await applicationCollection.insertOne(application);
+      }
+    });
+
+    app.post("/payment-error", verifyJwt, async (req, res) => {
+      const apl_id = req.query.apl_id;
+      const user = req.body;
+      const scholarship = await scholarshipsCollection.findOne({ _id: new ObjectId(apl_id) });
+
+      const info = {
+        scholarshipId: JSON.stringify(scholarship._id),
+        userId: user.uid,
+        userName: user.name,
+        userEmail: user.email,
+        universityName: scholarship.universityName,
+        scholarshipCategory: scholarship.scholarshipCategory,
+        degree: scholarship.degree,
+        applicationFees: scholarship.applicationFees,
+        serviceCharge: scholarship.serviceCharge,
+        applicationStatus: "pending",
+        paymentStatus: "unpaid",
+        applicationDate: new Date(),
+        feedback: "",
+        universityCountry: scholarship.universityCountry,
+      };
+      const id = JSON.stringify(scholarship._id);
+      const check = await applicationCollection.findOne({ userEmail: user.email, scholarshipId: id });
+      if (check) {
+        return;
+      } else {
+        const result = await applicationCollection.insertOne(info);
       }
     });
 
