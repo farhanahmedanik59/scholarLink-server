@@ -152,7 +152,9 @@ async function run() {
 
     app.get("/scholarships/:id", async (req, res) => {
       const scholarship = await scholarshipsCollection.findOne({ _id: new ObjectId(req.params.id) });
-      const reviewData = await reviewsCollection.findOne({ scholarshipId: req.params.id });
+
+      const reviewData = await reviewsCollection.find({ scholarshipId: req.params.id }).toArray();
+      console.log(reviewData);
       res.send({ scholarship, reviewData });
     });
     app.patch("/scholarships/:id", async (req, res) => {
@@ -172,7 +174,35 @@ async function run() {
         res.send(result);
       }
     });
+    app.delete("/applications", verifyJwt, async (req, res) => {
+      const { id } = req.query;
+      console.log(id);
+      result = await applicationCollection.deleteOne({ _id: new ObjectId(id) });
+      console.log(result);
+      res.send(result);
+    });
 
+    // reviews api
+    app.post("/reviews", async (req, res) => {
+      const review = req.body;
+      review.reviewDate = new Date();
+      result = await reviewsCollection.insertOne(review);
+      console.log(result);
+    });
+
+    app.get("/reviews", verifyJwt, async (req, res) => {
+      console.log(req.query);
+      const { email } = req.query;
+      console.log(email);
+      console.log(req.decodedUser.email);
+      if (req.decodedUser.email !== email) {
+        return res.status(401).send({ message: "Unauthorized" });
+      }
+
+      const result = await reviewsCollection.find({ userEmail: email }).toArray();
+
+      res.send(result);
+    });
     // STRIPE Api
     app.post("/create-checkout-session", async (req, res) => {
       const paymentInfo = req.body;
@@ -180,7 +210,6 @@ async function run() {
       const session = await stripe.checkout.sessions.create({
         line_items: [
           {
-            // Provide the exact Price ID (for example, price_1234) of the product you want to sell
             price_data: {
               currency: "USD",
               unit_amount: amount,
@@ -196,6 +225,7 @@ async function run() {
           userEmail: paymentInfo.userEmail,
           scholarshipId: paymentInfo._id,
           userId: paymentInfo.userId,
+          scholarshipName: paymentInfo.scholarshipName,
           universityName: paymentInfo.universityName,
           scholarshipCategory: paymentInfo.scholarshipCategory,
           degree: paymentInfo.degree,
@@ -212,37 +242,6 @@ async function run() {
       res.send({ url: session.url });
     });
 
-    // app.patch("/payment-success", async (req, res) => {
-    //   const { update } = req.query;
-    //   const sessionid = req.query.session_id;
-    //   const email = req.query.email;
-    //   const session = await stripe.checkout.sessions.retrieve(sessionid);
-    //   const application = session.metadata;
-    //   application.applicationStatus = "pending";
-    //   application.paymentStatus = "paid";
-    //   application.tnxId = session.payment_intent;
-    //   const check = await applicationCollection.findOne({ tnxId: session.payment_intent });
-    //   if (check) {
-    //     console.log("already paid");
-    //     return;
-    //   }
-    //   const checkForUpdate = await applicationCollection.findOne({ scholarshipId: session.scholarshipId, userEmail: session.userEmail });
-    //   console.log(checkForUpdate);
-    //   if (checkForUpdate) {
-    //     const resut = await applicationCollection.updateOne(
-    //       { scholarshipId: session.scholarshipId, userEmail: session.userEmail },
-    //       {
-    //         $set: {
-    //           paymentStatus: "paid",
-    //         },
-    //       }
-    //     );
-    //     console.log(resut);
-    //     res.send(resut);
-    //   } else {
-    //     const result = await applicationCollection.insertOne(application);
-    //   }
-    // });
     app.patch("/payment-success", async (req, res) => {
       try {
         const session_id = req.query.session_id;
@@ -251,7 +250,6 @@ async function run() {
           return res.status(400).send({ message: "Missing session_id" });
         }
 
-        // Retrieve the Stripe session
         const session = await stripe.checkout.sessions.retrieve(session_id);
 
         if (!session) {
@@ -260,18 +258,17 @@ async function run() {
 
         const metadata = session.metadata;
 
-        // Convert fees to numbers
         const applicationFees = parseFloat(metadata.applicationFees);
         const serviceCharge = parseFloat(metadata.serviceCharge);
 
-        const scholarshipId = metadata.scholarshipId; // stored as string
+        const scholarshipId = metadata.scholarshipId;
 
-        // Build application data
         const applicationData = {
           scholarshipId,
           userId: metadata.userId,
           userName: metadata.userName,
           userEmail: metadata.userEmail,
+          scholarshipName: metadata.scholarshipName,
           universityName: metadata.universityName,
           scholarshipCategory: metadata.scholarshipCategory,
           degree: metadata.degree,
@@ -285,7 +282,6 @@ async function run() {
           universityCountry: metadata.universityCountry,
         };
 
-        // 1️⃣ Check if payment already processed (prevent duplicates)
         const existingPayment = await applicationCollection.findOne({
           tnxId: session.payment_intent,
         });
@@ -294,15 +290,12 @@ async function run() {
           return res.status(200).send({ message: "Payment already processed" });
         }
 
-        // 2️⃣ Check if user already has an unpaid application for this scholarship
-
         const existingApplication = await applicationCollection.findOne({
           userEmail: metadata.userEmail,
           _id: new ObjectId(metadata.scholarshipId),
         });
 
         if (existingApplication) {
-          // Update the unpaid application to mark it as paid
           const result = await applicationCollection.updateOne({ _id: existingApplication._id }, { $set: { paymentStatus: "paid", tnxId: session.payment_intent } });
           console.log(result);
           return res.status(200).send({
@@ -312,7 +305,6 @@ async function run() {
           });
         }
 
-        // 3️⃣ If no application exists, insert a new one
         const result = await applicationCollection.insertOne(applicationData);
 
         return res.status(201).send({
