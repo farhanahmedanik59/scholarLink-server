@@ -45,7 +45,21 @@ async function run() {
       next();
     };
 
-    const verifyAdmin = (req, res, next) => {
+    const verifyAdmin = async (req, res, next) => {
+      const { email } = req.decodedUser;
+      const result = await usersCollection.findOne({ email: email });
+      if (result.role !== "admin") {
+        return res.status(401).send({ message: "Unauthorize" });
+      }
+      next();
+    };
+
+    const verifyModerator = async (req, res, next) => {
+      const { email } = req.decodedUser;
+      const result = await usersCollection.findOne({ email: email });
+      if (result.role !== "moderator") {
+        return res.status(401).send({ message: "Unauthorize" });
+      }
       next();
     };
 
@@ -91,13 +105,13 @@ async function run() {
     });
 
     // schoalarships api
-    app.post("/scholarships", async (req, res) => {
+    app.post("/scholarships", verifyJwt, verifyAdmin, async (req, res) => {
       req.body.scholarshipPostDate = new Date();
       const result = await scholarshipsCollection.insertOne(req.body);
 
       res.send(result);
     });
-    app.get("/adminScholarships", async (req, res) => {
+    app.get("/adminScholarships", verifyJwt, verifyAdmin, async (req, res) => {
       const result = await scholarshipsCollection.find().toArray();
       res.send(result);
     });
@@ -157,7 +171,7 @@ async function run() {
       console.log(reviewData);
       res.send({ scholarship, reviewData });
     });
-    app.patch("/scholarships/:id", async (req, res) => {
+    app.patch("/scholarships/:id", verifyJwt, verifyAdmin, async (req, res) => {
       const id = req.params.id;
       const updatedDoc = req.body;
 
@@ -167,10 +181,15 @@ async function run() {
 
     app.get("/applications", verifyJwt, async (req, res) => {
       const { email } = req.query;
-      if (req.decodedUser.email !== email) {
-        return res.status(401).send({ message: "Unauthorized" });
+      if (email) {
+        if (req.decodedUser.email !== email) {
+          return res.status(401).send({ message: "Unauthorized" });
+        } else {
+          const result = await applicationCollection.find({ userEmail: email }).toArray();
+          res.send(result);
+        }
       } else {
-        const result = await applicationCollection.find({ userEmail: email }).toArray();
+        const result = await applicationCollection.find().toArray();
         res.send(result);
       }
     });
@@ -183,7 +202,7 @@ async function run() {
     });
 
     // reviews api
-    app.post("/reviews", async (req, res) => {
+    app.post("/reviews", verifyJwt, async (req, res) => {
       const review = req.body;
       review.reviewDate = new Date();
       result = await reviewsCollection.insertOne(review);
@@ -203,8 +222,19 @@ async function run() {
 
       res.send(result);
     });
+
+    app.get("/all/reviews", verifyJwt, verifyModerator, async (req, res) => {
+      const result = await reviewsCollection.find().toArray();
+      res.send(result);
+    });
+
+    app.delete("/all/reviews/:id", async (req, res) => {
+      const id = req.params.id;
+      const result = await reviewsCollection.deleteOne({ _id: new ObjectId(id) });
+      res.send(result);
+    });
     // STRIPE Api
-    app.post("/create-checkout-session", async (req, res) => {
+    app.post("/create-checkout-session", verifyJwt, async (req, res) => {
       const paymentInfo = req.body;
       const amount = (paymentInfo.serviceCharge + paymentInfo.applicationFees) * 100;
       const session = await stripe.checkout.sessions.create({
@@ -242,7 +272,7 @@ async function run() {
       res.send({ url: session.url });
     });
 
-    app.patch("/payment-success", async (req, res) => {
+    app.patch("/payment-success", verifyJwt, async (req, res) => {
       try {
         const session_id = req.query.session_id;
 
