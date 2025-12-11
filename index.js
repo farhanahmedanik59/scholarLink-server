@@ -160,7 +160,13 @@ async function run() {
     });
 
     app.get("/scholarships/top", async (req, res) => {
-      const result = await scholarshipsCollection.find().sort({ universityWorldRank: -1 }).limit(6).toArray();
+      const result = await scholarshipsCollection
+        .find()
+        .sort({
+          applicationFees: 1,
+        })
+        .limit(6)
+        .toArray();
       res.send(result);
     });
 
@@ -176,6 +182,10 @@ async function run() {
       const updatedDoc = req.body;
 
       const result = await scholarshipsCollection.updateOne({ _id: new ObjectId(id) }, { $set: updatedDoc });
+      res.send(result);
+    });
+    app.delete("/scholarships/:id", async (req, res) => {
+      const result = await scholarshipsCollection.deleteOne({ _id: new ObjectId(req.params.id) });
       res.send(result);
     });
 
