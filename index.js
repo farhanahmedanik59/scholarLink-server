@@ -185,7 +185,8 @@ async function run() {
       res.send(result);
     });
     app.delete("/scholarships/:id", async (req, res) => {
-      const result = await scholarshipsCollection.deleteOne({ _id: new ObjectId(req.params.id) });
+      const id = req.params.id;
+      const result = await scholarshipsCollection.deleteOne({ _id: new ObjectId(id) });
       res.send(result);
     });
 
@@ -222,6 +223,175 @@ async function run() {
         }
       );
       res.send(result);
+    });
+
+    app.get("/analytics", verifyJwt, verifyAdmin, async (req, res) => {
+      try {
+        const application = await applicationCollection.countDocuments();
+        const users = await usersCollection.countDocuments();
+        const scholarships = await scholarshipsCollection.countDocuments();
+        const reviews = await reviewsCollection.countDocuments();
+
+        const paidApplications = await applicationCollection.find({ paymentStatus: "paid" }).toArray();
+        let totalFees = 0;
+        paidApplications.forEach((app) => {
+          totalFees += (app.applicationFees || 0) + (app.serviceCharge || 0);
+        });
+
+        res.send({
+          application,
+          users,
+          scholarships,
+          reviews,
+          totalFees,
+        });
+      } catch (error) {
+        res.status(500).send({ error: "Failed to fetch analytics" });
+      }
+    });
+
+    app.get("/analytics/charts", verifyJwt, verifyAdmin, async (req, res) => {
+      try {
+        const applications = await applicationCollection.find().toArray();
+        const scholarshipIds = applications.map((app) => app.scholarshipId);
+
+        const scholarships = await scholarshipsCollection
+          .find({
+            _id: { $in: scholarshipIds.map((id) => new ObjectId(id)) },
+          })
+          .toArray();
+
+        const universityApplications = {};
+        applications.forEach((app) => {
+          const scholarship = scholarships.find((s) => s._id.toString() === app.scholarshipId);
+          if (scholarship) {
+            const uniName = scholarship.universityName;
+            universityApplications[uniName] = (universityApplications[uniName] || 0) + 1;
+          }
+        });
+
+        const applicationsByUniversity = Object.entries(universityApplications)
+          .map(([name, count]) => ({
+            name,
+            applications: count,
+          }))
+          .slice(0, 10);
+
+        const applicationsByCategory = {};
+        applications.forEach((app) => {
+          const scholarship = scholarships.find((s) => s._id.toString() === app.scholarshipId);
+          if (scholarship) {
+            const category = scholarship.scholarshipCategory || "Unknown";
+            applicationsByCategory[category] = (applicationsByCategory[category] || 0) + 1;
+          }
+        });
+
+        const applicationsByCategoryData = Object.entries(applicationsByCategory).map(([name, value]) => ({
+          name,
+          value,
+        }));
+
+        const monthlyData = await applicationCollection
+          .aggregate([
+            {
+              $group: {
+                _id: {
+                  year: { $year: "$applicationDate" },
+                  month: { $month: "$applicationDate" },
+                },
+                count: { $sum: 1 },
+              },
+            },
+            { $sort: { "_id.year": 1, "_id.month": 1 } },
+            { $limit: 6 },
+          ])
+          .toArray();
+
+        const monthlyTrend = monthlyData.map((item) => ({
+          month: `${item._id.year}-${item._id.month}`,
+          applications: item.count,
+        }));
+
+        res.send({
+          applicationsByUniversity,
+          applicationsByCategory: applicationsByCategoryData,
+          monthlyTrend,
+          totalApplications: applications.length,
+          paidApplications: applications.filter((app) => app.paymentStatus === "paid").length,
+        });
+      } catch (error) {
+        console.error("Chart data error:", error);
+        res.status(500).send({ error: "Failed to fetch chart data" });
+      }
+    });
+
+    app.get("/analytics/detailed", verifyJwt, verifyAdmin, async (req, res) => {
+      try {
+        const applications = await applicationCollection.find().toArray();
+        const scholarshipIds = [...new Set(applications.map((app) => app.scholarshipId))];
+
+        const scholarships = await scholarshipsCollection
+          .find({
+            _id: { $in: scholarshipIds.map((id) => new ObjectId(id)) },
+          })
+          .toArray();
+
+        const statusBreakdown = {};
+        applications.forEach((app) => {
+          const status = app.applicationStatus || "pending";
+          statusBreakdown[status] = (statusBreakdown[status] || 0) + 1;
+        });
+
+        const paymentBreakdown = {};
+        applications.forEach((app) => {
+          const status = app.paymentStatus || "unpaid";
+          paymentBreakdown[status] = (paymentBreakdown[status] || 0) + 1;
+        });
+
+        const scholarshipAppCount = {};
+        applications.forEach((app) => {
+          const scholarship = scholarships.find((s) => s._id.toString() === app.scholarshipId);
+          if (scholarship) {
+            const name = scholarship.scholarshipName;
+            scholarshipAppCount[name] = (scholarshipAppCount[name] || 0) + 1;
+          }
+        });
+
+        const topScholarships = Object.entries(scholarshipAppCount)
+          .map(([name, count]) => ({ name, applications: count }))
+          .sort((a, b) => b.applications - a.applications)
+          .slice(0, 5);
+
+        const recentApplications = await applicationCollection.find().sort({ applicationDate: -1 }).limit(5).toArray();
+
+        const totalFees = applications.reduce((sum, app) => {
+          return sum + (app.applicationFees || 0) + (app.serviceCharge || 0);
+        }, 0);
+
+        const avgFeePerApplication = applications.length > 0 ? (totalFees / applications.length).toFixed(2) : 0;
+
+        res.send({
+          statusBreakdown,
+          paymentBreakdown,
+          topScholarships,
+          recentApplications: recentApplications.map((app) => ({
+            userName: app.userName,
+            universityName: app.universityName,
+            status: app.applicationStatus,
+            paymentStatus: app.paymentStatus,
+            date: app.applicationDate,
+            fees: (app.applicationFees || 0) + (app.serviceCharge || 0),
+          })),
+          totals: {
+            totalFees,
+            avgFeePerApplication,
+            totalPaid: applications.filter((app) => app.paymentStatus === "paid").length,
+            totalPending: applications.filter((app) => app.applicationStatus === "pending").length,
+          },
+        });
+      } catch (error) {
+        res.status(500).send({ error: "Failed to fetch detailed analytics" });
+      }
     });
 
     // reviews api
