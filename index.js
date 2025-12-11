@@ -179,7 +179,8 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/applications", verifyJwt, async (req, res) => {
+    // applications api
+    app.get("/applications", verifyJwt, verifyModerator, async (req, res) => {
       const { email } = req.query;
       if (email) {
         if (req.decodedUser.email !== email) {
@@ -193,11 +194,23 @@ async function run() {
         res.send(result);
       }
     });
-    app.delete("/applications", verifyJwt, async (req, res) => {
+    app.delete("/applications", verifyJwt, verifyModerator, async (req, res) => {
       const { id } = req.query;
       console.log(id);
       result = await applicationCollection.deleteOne({ _id: new ObjectId(id) });
       console.log(result);
+      res.send(result);
+    });
+
+    app.patch("/applications/:id", verifyJwt, verifyModerator, async (req, res) => {
+      const id = req.params.id;
+      const updatedDoc = req.body;
+      const result = await applicationCollection.updateOne(
+        { _id: new ObjectId(id) },
+        {
+          $set: updatedDoc,
+        }
+      );
       res.send(result);
     });
 
@@ -376,6 +389,8 @@ async function run() {
         const result = await applicationCollection.insertOne(info);
       }
     });
+
+    // moderator api
 
     await client.connect();
     // Send a ping to confirm a successful connection
