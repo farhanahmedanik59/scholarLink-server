@@ -73,6 +73,11 @@ async function run() {
       const result = await usersCollection.findOne({ email: email });
       res.send(result);
     });
+    app.delete("/users/:id", verifyJwt, verifyAdmin, async (req, res) => {
+      const result = await usersCollection.deleteOne({ _id: new ObjectId(req.params.id) });
+      console.log(result);
+      res.send(result);
+    });
     app.get("/users/:email/role", async (req, res) => {
       const { email } = req.params;
       const result = await usersCollection.findOne({ email: email });
@@ -191,7 +196,7 @@ async function run() {
     });
 
     // applications api
-    app.get("/applications", verifyJwt, verifyModerator, async (req, res) => {
+    app.get("/applications", verifyJwt, async (req, res) => {
       const { email } = req.query;
       if (email) {
         if (req.decodedUser.email !== email) {
