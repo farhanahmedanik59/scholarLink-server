@@ -1,6 +1,6 @@
 const express = require("express");
 const app = express();
-const port = 3000;
+const port = 4000;
 var cors = require("cors");
 require("dotenv").config();
 app.use(cors());
@@ -9,7 +9,6 @@ var admin = require("firebase-admin");
 const stripe = require("stripe")(process.env.STRIPE_API);
 const decoded = Buffer.from(process.env.FB_TOKEN, "base64").toString("utf8");
 var serviceAccount = JSON.parse(decoded);
-
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
@@ -544,8 +543,6 @@ async function run() {
         const result = await applicationCollection.insertOne(info);
       }
     });
-
-    // moderator api
   } finally {
   }
 }
