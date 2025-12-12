@@ -7,7 +7,8 @@ app.use(cors());
 app.use(express.json());
 var admin = require("firebase-admin");
 const stripe = require("stripe")(process.env.STRIPE_API);
-var serviceAccount = require("./scholarlink-9240a.json");
+const decoded = Buffer.from(process.env.FB_TOKEN, "base64").toString("utf8");
+var serviceAccount = JSON.parse(decoded);
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
@@ -75,7 +76,6 @@ async function run() {
     });
     app.delete("/users/:id", verifyJwt, verifyAdmin, async (req, res) => {
       const result = await usersCollection.deleteOne({ _id: new ObjectId(req.params.id) });
-      console.log(result);
       res.send(result);
     });
     app.get("/users/:email/role", async (req, res) => {
@@ -85,7 +85,6 @@ async function run() {
     });
     app.patch("/user/:email/role", verifyJwt, verifyAdmin, async (req, res) => {
       const userInfo = req.body;
-      console.log(req.body);
       const result = await usersCollection.updateOne(
         { email: userInfo.email },
         {
@@ -117,13 +116,12 @@ async function run() {
       res.send(result);
     });
     app.get("/adminScholarships", verifyJwt, verifyAdmin, async (req, res) => {
-      const result = await scholarshipsCollection.find().toArray();
+      const result = await scholarshipsCollection.find().sort({ scholarshipPostDate: -1 }).toArray();
       res.send(result);
     });
     app.get("/scholarships", async (req, res) => {
       try {
         const scholarships = await scholarshipsCollection.find().sort({ scholarshipPostDate: -1 }).toArray();
-
         const countries = [...new Set(scholarships.map((s) => s.universityCountry).filter(Boolean))];
         const categories = [...new Set(scholarships.map((s) => s.scholarshipCategory).filter(Boolean))];
 
@@ -136,7 +134,6 @@ async function run() {
           },
         });
       } catch (error) {
-        console.error("Error:", error);
         res.status(500).send({ success: false, message: error.message });
       }
     });
@@ -175,21 +172,22 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/scholarships/:id", async (req, res) => {
+    app.get("/scholarship/:id/payment", verifyJwt, async (req, res) => {
+      const result = await scholarshipsCollection.findOne({ _id: new ObjectId(req.params.id) });
+      res.send(result);
+    });
+    app.get("/scholarships/:id", verifyJwt, async (req, res) => {
       const scholarship = await scholarshipsCollection.findOne({ _id: new ObjectId(req.params.id) });
-
       const reviewData = await reviewsCollection.find({ scholarshipId: req.params.id }).toArray();
-      console.log(reviewData);
       res.send({ scholarship, reviewData });
     });
     app.patch("/scholarships/:id", verifyJwt, verifyAdmin, async (req, res) => {
       const id = req.params.id;
       const updatedDoc = req.body;
-
       const result = await scholarshipsCollection.updateOne({ _id: new ObjectId(id) }, { $set: updatedDoc });
       res.send(result);
     });
-    app.delete("/scholarships/:id", async (req, res) => {
+    app.delete("/scholarships/:id", verifyJwt, verifyAdmin, async (req, res) => {
       const id = req.params.id;
       const result = await scholarshipsCollection.deleteOne({ _id: new ObjectId(id) });
       res.send(result);
@@ -210,11 +208,9 @@ async function run() {
         res.send(result);
       }
     });
-    app.delete("/applications", verifyJwt, verifyModerator, async (req, res) => {
+    app.delete("/applications", verifyJwt, async (req, res) => {
       const { id } = req.query;
-      console.log(id);
       result = await applicationCollection.deleteOne({ _id: new ObjectId(id) });
-      console.log(result);
       res.send(result);
     });
 
@@ -242,7 +238,6 @@ async function run() {
         paidApplications.forEach((app) => {
           totalFees += (app.applicationFees || 0) + (app.serviceCharge || 0);
         });
-
         res.send({
           application,
           users,
@@ -259,13 +254,11 @@ async function run() {
       try {
         const applications = await applicationCollection.find().toArray();
         const scholarshipIds = applications.map((app) => app.scholarshipId);
-
         const scholarships = await scholarshipsCollection
           .find({
             _id: { $in: scholarshipIds.map((id) => new ObjectId(id)) },
           })
           .toArray();
-
         const universityApplications = {};
         applications.forEach((app) => {
           const scholarship = scholarships.find((s) => s._id.toString() === app.scholarshipId);
@@ -274,14 +267,12 @@ async function run() {
             universityApplications[uniName] = (universityApplications[uniName] || 0) + 1;
           }
         });
-
         const applicationsByUniversity = Object.entries(universityApplications)
           .map(([name, count]) => ({
             name,
             applications: count,
           }))
           .slice(0, 10);
-
         const applicationsByCategory = {};
         applications.forEach((app) => {
           const scholarship = scholarships.find((s) => s._id.toString() === app.scholarshipId);
@@ -290,12 +281,10 @@ async function run() {
             applicationsByCategory[category] = (applicationsByCategory[category] || 0) + 1;
           }
         });
-
         const applicationsByCategoryData = Object.entries(applicationsByCategory).map(([name, value]) => ({
           name,
           value,
         }));
-
         const monthlyData = await applicationCollection
           .aggregate([
             {
@@ -311,12 +300,10 @@ async function run() {
             { $limit: 6 },
           ])
           .toArray();
-
         const monthlyTrend = monthlyData.map((item) => ({
           month: `${item._id.year}-${item._id.month}`,
           applications: item.count,
         }));
-
         res.send({
           applicationsByUniversity,
           applicationsByCategory: applicationsByCategoryData,
@@ -325,7 +312,6 @@ async function run() {
           paidApplications: applications.filter((app) => app.paymentStatus === "paid").length,
         });
       } catch (error) {
-        console.error("Chart data error:", error);
         res.status(500).send({ error: "Failed to fetch chart data" });
       }
     });
@@ -334,7 +320,6 @@ async function run() {
       try {
         const applications = await applicationCollection.find().toArray();
         const scholarshipIds = [...new Set(applications.map((app) => app.scholarshipId))];
-
         const scholarships = await scholarshipsCollection
           .find({
             _id: { $in: scholarshipIds.map((id) => new ObjectId(id)) },
@@ -346,13 +331,11 @@ async function run() {
           const status = app.applicationStatus || "pending";
           statusBreakdown[status] = (statusBreakdown[status] || 0) + 1;
         });
-
         const paymentBreakdown = {};
         applications.forEach((app) => {
           const status = app.paymentStatus || "unpaid";
           paymentBreakdown[status] = (paymentBreakdown[status] || 0) + 1;
         });
-
         const scholarshipAppCount = {};
         applications.forEach((app) => {
           const scholarship = scholarships.find((s) => s._id.toString() === app.scholarshipId);
@@ -368,7 +351,6 @@ async function run() {
           .slice(0, 5);
 
         const recentApplications = await applicationCollection.find().sort({ applicationDate: -1 }).limit(5).toArray();
-
         const totalFees = applications.reduce((sum, app) => {
           return sum + (app.applicationFees || 0) + (app.serviceCharge || 0);
         }, 0);
@@ -404,23 +386,24 @@ async function run() {
       const review = req.body;
       review.reviewDate = new Date();
       result = await reviewsCollection.insertOne(review);
-      console.log(result);
+      res.send(result);
     });
 
     app.get("/reviews", verifyJwt, async (req, res) => {
-      console.log(req.query);
       const { email } = req.query;
-      console.log(email);
-      console.log(req.decodedUser.email);
       if (req.decodedUser.email !== email) {
         return res.status(401).send({ message: "Unauthorized" });
       }
-
       const result = await reviewsCollection.find({ userEmail: email }).toArray();
 
       res.send(result);
     });
 
+    app.patch("/reviews/:id", verifyJwt, async (req, res) => {
+      const id = req.params.id;
+      const result = await reviewsCollection.updateOne({ _id: new ObjectId(id) }, { $set: req.body });
+      res.send(result);
+    });
     app.get("/all/reviews", verifyJwt, verifyModerator, async (req, res) => {
       const result = await reviewsCollection.find().toArray();
       res.send(result);
@@ -431,6 +414,7 @@ async function run() {
       const result = await reviewsCollection.deleteOne({ _id: new ObjectId(id) });
       res.send(result);
     });
+
     // STRIPE Api
     app.post("/create-checkout-session", verifyJwt, async (req, res) => {
       const paymentInfo = req.body;
@@ -447,7 +431,6 @@ async function run() {
           },
         ],
         customer_email: paymentInfo.userEmail,
-
         mode: "payment",
         metadata: {
           userEmail: paymentInfo.userEmail,
@@ -464,7 +447,7 @@ async function run() {
           userName: paymentInfo.userName,
           universityCountry: paymentInfo.universityCountry,
         },
-        success_url: `${process.env.SITE_DOMAIN}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+        success_url: `${process.env.SITE_DOMAIN}/payment-success?session_id={CHECKOUT_SESSION_ID}&id=${paymentInfo._id}`,
         cancel_url: `${process.env.SITE_DOMAIN}/payment-error?apl_id=${paymentInfo._id}`,
       });
       res.send({ url: session.url });
@@ -473,24 +456,17 @@ async function run() {
     app.patch("/payment-success", verifyJwt, async (req, res) => {
       try {
         const session_id = req.query.session_id;
-
         if (!session_id) {
           return res.status(400).send({ message: "Missing session_id" });
         }
-
         const session = await stripe.checkout.sessions.retrieve(session_id);
-
         if (!session) {
           return res.status(404).send({ message: "Stripe session not found" });
         }
-
         const metadata = session.metadata;
-
         const applicationFees = parseFloat(metadata.applicationFees);
         const serviceCharge = parseFloat(metadata.serviceCharge);
-
         const scholarshipId = metadata.scholarshipId;
-
         const applicationData = {
           scholarshipId,
           userId: metadata.userId,
@@ -509,7 +485,6 @@ async function run() {
           feedback: "",
           universityCountry: metadata.universityCountry,
         };
-
         const existingPayment = await applicationCollection.findOne({
           tnxId: session.payment_intent,
         });
@@ -517,24 +492,19 @@ async function run() {
         if (existingPayment) {
           return res.status(200).send({ message: "Payment already processed" });
         }
-
         const existingApplication = await applicationCollection.findOne({
           userEmail: metadata.userEmail,
           _id: new ObjectId(metadata.scholarshipId),
         });
-
         if (existingApplication) {
           const result = await applicationCollection.updateOne({ _id: existingApplication._id }, { $set: { paymentStatus: "paid", tnxId: session.payment_intent } });
-          console.log(result);
           return res.status(200).send({
             message: "Application updated to paid",
             updatedId: existingApplication._id,
             result,
           });
         }
-
         const result = await applicationCollection.insertOne(applicationData);
-
         return res.status(201).send({
           message: "Application created and marked as paid",
           insertedId: result.insertedId,
@@ -569,18 +539,13 @@ async function run() {
       const id = scholarship._id.toString();
       const check = await applicationCollection.findOne({ userEmail: user.email, scholarshipId: id });
       if (check) {
-        return;
+        return res.send("already exists");
       } else {
         const result = await applicationCollection.insertOne(info);
       }
     });
 
     // moderator api
-
-    await client.connect();
-    // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
-    console.log("Pinged your deployment. You successfully connected to MongoDB!");
   } finally {
   }
 }
