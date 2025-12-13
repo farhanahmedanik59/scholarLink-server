@@ -175,7 +175,7 @@ async function run() {
       const result = await scholarshipsCollection.findOne({ _id: new ObjectId(req.params.id) });
       res.send(result);
     });
-    app.get("/scholarships/:id", verifyJwt, async (req, res) => {
+    app.get("/scholarships/:id", async (req, res) => {
       const scholarship = await scholarshipsCollection.findOne({ _id: new ObjectId(req.params.id) });
       const reviewData = await reviewsCollection.find({ scholarshipId: req.params.id }).toArray();
       res.send({ scholarship, reviewData });
