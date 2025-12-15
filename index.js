@@ -518,7 +518,6 @@ async function run() {
       const apl_id = req.query.apl_id;
       const user = req.body;
       const scholarship = await scholarshipsCollection.findOne({ _id: new ObjectId(apl_id) });
-
       const info = {
         scholarshipId: scholarship._id.toString(),
         userId: user.uid,
